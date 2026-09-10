@@ -1,0 +1,45 @@
+{
+  "name": "@simone-bianco/vue-activity-matrix",
+  "version": "0.1.0",
+  "description": "Bounded, accessible Vue 3 activity matrix with injectable history and detail loaders.",
+  "type": "module",
+  "files": [
+    "dist",
+    "src/style.css",
+    "README.md"
+  ],
+  "main": "./dist/vue-activity-matrix.js",
+  "module": "./dist/vue-activity-matrix.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/vue-activity-matrix.js"
+    },
+    "./style.css": "./src/style.css"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit",
+    "build": "npm run typecheck && vite build"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0",
+    "@simone-bianco/vue-ui-components": "^1.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "@vue/server-renderer": "3.5.41",
+    "@vue/test-utils": "2.4.6",
+    "happy-dom": "^20.11.1",
+    "typescript": "^5.9.3",
+    "vite": "8.2.1",
+    "vite-plugin-dts": "5.0.3",
+    "vitest": "4.1.10",
+    "vue": "3.5.41",
+    "vue-tsc": "3.3.9"
+  }
+}
