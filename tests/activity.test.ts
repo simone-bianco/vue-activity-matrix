@@ -35,6 +35,49 @@ function deferred<T>() {
 }
 
 describe("activity source window", () => {
+  it("replaces live outcomes while retaining selection and leaves historical windows untouched", async () => {
+    const source = {
+      loadPage: vi
+        .fn()
+        .mockResolvedValueOnce(page([3, 4], "before-3"))
+        .mockResolvedValueOnce(page([4, 5], "before-4"))
+        .mockResolvedValueOnce(page([1, 2], null, "after-2"))
+        .mockResolvedValueOnce({ ...page([5, 6]), pendingCount: 2 }),
+      loadDetail: vi.fn().mockResolvedValue({ error: "timeout" }),
+    };
+    let state!: ReturnType<
+      typeof useActivityMatrix<ActivityItem, unknown, object>
+    >;
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          state = useActivityMatrix({
+            source,
+            filters: {},
+            capacity: 2,
+            liveUpdate: "replace",
+          });
+          return () => h("div");
+        },
+      }),
+    );
+    await flushPromises();
+    await state.select(state.items.value[0]);
+    state.invalidate();
+    expect(state.loading.value).toBe(false);
+    await flushPromises();
+    expect(state.items.value.map((entry) => entry.id)).toEqual(["4", "5"]);
+    expect(state.selected.value?.id).toBe("3");
+    expect(state.detail.value).toEqual({ error: "timeout" });
+    expect(state.animateChanges.value).toBe(false);
+    await state.older();
+    state.invalidate();
+    await flushPromises();
+    expect(state.items.value.map((entry) => entry.id)).toEqual(["1", "2"]);
+    expect(state.pendingCount.value).toBe(2);
+    expect(state.live.value).toBe(false);
+    wrapper.unmount();
+  });
   it("retries a failed history invalidation without replacing the inspected window", async () => {
     const source = {
       loadPage: vi

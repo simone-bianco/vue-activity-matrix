@@ -37,6 +37,8 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
   filters: MaybeRefOrGetter<F>;
   capacity?: MaybeRefOrGetter<number>;
   columnSize?: MaybeRefOrGetter<number>;
+  /** Outcome feeds replace superseded rows; append-only journals retain their window. */
+  liveUpdate?: "append" | "replace";
 }) {
   const capacity = computed(() => {
     const value = toValue(options.capacity ?? 80);
@@ -118,7 +120,11 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
       });
       if (!mounted || current !== revision || controller.signal.aborted) return;
       error.value = false;
-      animateChanges.value = background && !replaceWindow && live.value;
+      animateChanges.value =
+        background &&
+        !replaceWindow &&
+        live.value &&
+        options.liveUpdate !== "replace";
       if (background && !replaceWindow && !live.value) {
         pendingCount.value = Math.max(
           0,
@@ -131,7 +137,13 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
             ).length,
         );
       } else {
-        if (background && !replaceWindow && live.value && items.value.length) {
+        if (
+          background &&
+          !replaceWindow &&
+          live.value &&
+          items.value.length &&
+          options.liveUpdate !== "replace"
+        ) {
           const newest = items.value.at(-1)!.order;
           const incoming = page.items.filter((item) => item.order > newest);
           if (incoming.length) {
