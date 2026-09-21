@@ -78,6 +78,43 @@ describe("activity source window", () => {
     expect(state.live.value).toBe(false);
     wrapper.unmount();
   });
+  it("animates only newly keyed rows when a replacing live feed opts in", async () => {
+    const source = {
+      loadPage: vi
+        .fn()
+        .mockResolvedValueOnce(page([3, 4]))
+        .mockResolvedValueOnce(page([4, 5]))
+        .mockResolvedValueOnce(page([4, 5])),
+      loadDetail: vi.fn(),
+    };
+    let state!: ReturnType<
+      typeof useActivityMatrix<ActivityItem, unknown, object>
+    >;
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          state = useActivityMatrix({
+            source,
+            filters: {},
+            capacity: 2,
+            liveUpdate: "replace",
+            animateLiveAdditions: true,
+          });
+          return () => h("div");
+        },
+      }),
+    );
+    await flushPromises();
+    expect(state.animateChanges.value).toBe(false);
+    state.invalidate();
+    await flushPromises();
+    expect(state.items.value.map((entry) => entry.id)).toEqual(["4", "5"]);
+    expect(state.animateChanges.value).toBe(true);
+    state.invalidate();
+    await flushPromises();
+    expect(state.animateChanges.value).toBe(false);
+    wrapper.unmount();
+  });
   it("retries a failed history invalidation without replacing the inspected window", async () => {
     const source = {
       loadPage: vi

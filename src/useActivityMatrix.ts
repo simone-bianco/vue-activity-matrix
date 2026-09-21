@@ -39,6 +39,8 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
   columnSize?: MaybeRefOrGetter<number>;
   /** Outcome feeds replace superseded rows; append-only journals retain their window. */
   liveUpdate?: "append" | "replace";
+  /** Animate newly keyed rows during live refreshes. Replace feeds opt out by default. */
+  animateLiveAdditions?: boolean;
 }) {
   const capacity = computed(() => {
     const value = toValue(options.capacity ?? 80);
@@ -120,11 +122,13 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
       });
       if (!mounted || current !== revision || controller.signal.aborted) return;
       error.value = false;
+      const currentIds = new Set(items.value.map((item) => item.id));
       animateChanges.value =
         background &&
         !replaceWindow &&
         live.value &&
-        options.liveUpdate !== "replace";
+        (options.animateLiveAdditions ?? options.liveUpdate !== "replace") &&
+        page.items.some((item) => !currentIds.has(item.id));
       if (background && !replaceWindow && !live.value) {
         pendingCount.value = Math.max(
           0,
