@@ -37,6 +37,8 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
   filters: MaybeRefOrGetter<F>;
   capacity?: MaybeRefOrGetter<number>;
   columnSize?: MaybeRefOrGetter<number>;
+  /** Shift this many oldest columns as soon as live view fills; 0 disables it. */
+  liveShiftColumns?: MaybeRefOrGetter<number>;
   /** Outcome feeds replace superseded rows; append-only journals retain their window. */
   liveUpdate?: "append" | "replace";
   /** Animate newly keyed rows during live refreshes. Replace feeds opt out by default. */
@@ -55,6 +57,18 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
       : 1;
   });
   const items = shallowRef<readonly T[]>([]);
+  const shiftSize = computed(() => {
+    const value = toValue(options.liveShiftColumns ?? 0);
+    // Keep at least one column visible on narrow boards.
+    const columns = Math.max(
+      0,
+      Math.floor(capacity.value / columnSize.value) - 1,
+    );
+    return Number.isFinite(value)
+      ? Math.max(0, Math.min(columns, Math.trunc(value))) * columnSize.value
+      : 0;
+  });
+  let liveFloor: string | null = null;
   const selected = shallowRef<T | null>(null);
   const detail = shallowRef<D | null>(null);
   const loading = ref(false);
@@ -91,6 +105,26 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
     newerCursor.value = page.newerCursor;
   }
 
+  function trimLiveWindow() {
+    let visible = items.value.filter(
+      (item) => liveFloor === null || item.order > liveFloor,
+    );
+    const excess = visible.length - capacity.value;
+    const removed =
+      shiftSize.value > 0
+        ? Math.max(0, Math.floor(excess / shiftSize.value) + 1) *
+          shiftSize.value
+        : Math.ceil(Math.max(0, excess) / columnSize.value) * columnSize.value;
+    if (removed > 0) {
+      liveFloor = visible[removed - 1].order;
+      visible = visible.slice(removed);
+    }
+    items.value = visible;
+    if (liveFloor !== null) {
+      olderCursor.value = visible[0]?.cursor ?? olderCursor.value;
+    }
+  }
+
   async function load(
     direction: ActivityDirection = "latest",
     cursor: string | null = null,
@@ -123,12 +157,12 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
       if (!mounted || current !== revision || controller.signal.aborted) return;
       error.value = false;
       const currentIds = new Set(items.value.map((item) => item.id));
-      animateChanges.value =
+      const animateLive =
         background &&
         !replaceWindow &&
         live.value &&
-        (options.animateLiveAdditions ?? options.liveUpdate !== "replace") &&
-        page.items.some((item) => !currentIds.has(item.id));
+        (options.animateLiveAdditions ?? options.liveUpdate !== "replace");
+      animateChanges.value = false;
       if (background && !replaceWindow && !live.value) {
         pendingCount.value = Math.max(
           0,
@@ -155,22 +189,20 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
               [...items.value, ...incoming],
               capacity.value * 2,
             );
-            const excess = Math.max(0, merged.length - capacity.value);
-            const removed =
-              Math.ceil(excess / columnSize.value) * columnSize.value;
-            items.value = merged.slice(removed);
-            olderCursor.value =
-              removed > 0
-                ? (items.value[0]?.cursor ?? page.olderCursor)
-                : (olderCursor.value ?? page.olderCursor);
+            items.value = merged;
+            olderCursor.value = olderCursor.value ?? page.olderCursor;
             newerCursor.value = null;
           }
         } else {
+          if (!background || replaceWindow) liveFloor = null;
           accept(page);
           windowRequest = [direction, cursor];
         }
         live.value = direction === "latest";
         if (live.value) {
+          trimLiveWindow();
+          animateChanges.value =
+            animateLive && items.value.some((item) => !currentIds.has(item.id));
           liveAnchor = items.value.at(-1)?.id ?? null;
           liveAnchorOrder = items.value.at(-1)?.order ?? null;
           pendingCount.value = 0;
@@ -225,6 +257,7 @@ export function useActivityMatrix<T extends ActivityItem, D, F>(options: {
     items.value = [];
     olderCursor.value = newerCursor.value = null;
     liveAnchor = liveAnchorOrder = null;
+    liveFloor = null;
     windowRequest = ["latest", null];
     live.value = true;
     pendingCount.value = 0;

@@ -35,6 +35,117 @@ function deferred<T>() {
 }
 
 describe("activity source window", () => {
+  it("shifts three columns at exact capacity, retains the live floor across replacements and preserves history", async () => {
+    const capacity = ref(10);
+    const filters = ref({});
+    const liveShiftColumns = ref(3);
+    let latest = Array.from({ length: 10 }, (_, i) => i + 1);
+    const source = {
+      loadPage: vi.fn(async (query) => ({
+        ...page(query.direction === "older" ? [1, 2, 3, 4, 5, 6] : latest),
+        items: (query.direction === "older" ? [1, 2, 3, 4, 5, 6] : latest).map(
+          (n) => ({ ...item(n), cursor: `before-${n}` }),
+        ),
+        pendingCount: 2,
+      })),
+      loadDetail: vi.fn().mockResolvedValue({ selected: true }),
+    };
+    let state!: ReturnType<
+      typeof useActivityMatrix<ActivityItem, unknown, object>
+    >;
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          state = useActivityMatrix({
+            source,
+            filters,
+            capacity,
+            columnSize: 2,
+            liveShiftColumns,
+            liveUpdate: "replace",
+            animateLiveAdditions: true,
+          });
+          return () => h("div");
+        },
+      }),
+    );
+    await flushPromises();
+    const ids = () => state.items.value.map((entry) => Number(entry.id));
+    expect(ids()).toEqual([7, 8, 9, 10]);
+    expect(state.hasOlder.value).toBe(true);
+    await state.select(state.items.value[0]);
+    state.invalidate();
+    await flushPromises();
+    expect(ids()).toEqual([7, 8, 9, 10]);
+    expect(state.animateChanges.value).toBe(false);
+    // A superseded outcome disappears, while previously shifted events stay out.
+    latest = [2, 3, 4, 5, 6, 8, 9, 10, 11];
+    state.invalidate();
+    await flushPromises();
+    expect(ids()).toEqual([8, 9, 10, 11]);
+    expect(state.selected.value?.id).toBe("7");
+    expect(state.detail.value).toEqual({ selected: true });
+    expect(state.animateChanges.value).toBe(true);
+    // Refill all ten cells: shift six oldest cells again immediately.
+    latest = Array.from({ length: 10 }, (_, i) => i + 8);
+    state.invalidate();
+    await flushPromises();
+    expect(ids()).toEqual([14, 15, 16, 17]);
+    await state.older();
+    expect(source.loadPage.mock.calls.at(-1)?.[0].cursor).toBe("before-14");
+    expect(ids()).toEqual([1, 2, 3, 4, 5, 6]);
+    state.invalidate();
+    await flushPromises();
+    expect(ids()).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(state.pendingCount.value).toBe(2);
+    liveShiftColumns.value = 1;
+    await state.returnLive();
+    expect(ids()).toEqual([10, 11, 12, 13, 14, 15, 16, 17]);
+    // Geometry changes reset the floor, retaining selection and no entry animation.
+    capacity.value = 6;
+    await flushPromises();
+    expect(ids()).toEqual([14, 15, 16, 17]);
+    expect(state.animateChanges.value).toBe(false);
+    expect(state.selected.value?.id).toBe("7");
+    latest = [1, 2];
+    filters.value = { reset: true };
+    await flushPromises();
+    expect(ids()).toEqual([1, 2]);
+    wrapper.unmount();
+  });
+
+  it("bounds large shift settings to retain a column on narrow boards", async () => {
+    const source = {
+      loadPage: vi.fn().mockResolvedValue(page([1, 2, 3, 4])),
+      loadDetail: vi.fn(),
+    };
+    let state!: ReturnType<
+      typeof useActivityMatrix<ActivityItem, unknown, object>
+    >;
+    const capacity = ref(4);
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          state = useActivityMatrix({
+            source,
+            filters: {},
+            capacity,
+            columnSize: 2,
+            liveShiftColumns: 99,
+            liveUpdate: "replace",
+          });
+          return () => h("div");
+        },
+      }),
+    );
+    await flushPromises();
+    expect(state.items.value.map((entry) => entry.id)).toEqual(["3", "4"]);
+    capacity.value = 2;
+    await flushPromises();
+    expect(state.items.value.map((entry) => entry.id)).toEqual(["3", "4"]);
+    wrapper.unmount();
+  });
+
   it("replaces live outcomes while retaining selection and leaves historical windows untouched", async () => {
     const source = {
       loadPage: vi
